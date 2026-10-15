@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>디지털 새싹 추첨기</title>
+<meta name="description" content="디지털 새싹 신청자 공개 추첨 웹앱 — 명단은 브라우저 안에서만 처리됩니다.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#f5f8f3; --card:#ffffff; --ink:#1f2a22; --muted:#66756b; --line:#dfe7dc;
+  --green:#2f9e54; --green-d:#23793f; --green-l:#e5f5ea; --gold:#f2b705; --red:#d64545;
+  --shadow:0 2px 10px rgba(30,60,40,.07);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;line-height:1.5;
+  padding:0 16px calc(16px + env(safe-area-inset-bottom))}
+header{max-width:1000px;margin:0 auto;padding:28px 0 12px;display:flex;align-items:center;gap:12px}
+header .logo{font-size:40px}
+header h1{margin:0;font-size:26px}
+header p{margin:2px 0 0;color:var(--muted);font-size:14px}
+main{max-width:1000px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin:14px 0;box-shadow:var(--shadow)}
+.card h2{margin:0 0 4px;font-size:19px;display:flex;align-items:center;gap:8px}
+.card h2 .num{background:var(--green);color:#fff;border-radius:50%;width:26px;height:26px;display:inline-grid;place-items:center;font-size:14px}
+.hint{color:var(--muted);font-size:13.5px;margin:2px 0 12px}
+label{font-weight:600;font-size:14px}
+input[type=text],input[type=number],select,textarea{font:inherit;border:1px solid #cbd6c8;border-radius:10px;padding:9px 11px;background:#fff;color:var(--ink);width:100%}
+textarea{min-height:170px;resize:vertical;font-size:14px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--green);outline-offset:0;border-color:var(--green)}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.row>.f{flex:1 1 180px;min-width:0}
+.row>.f.s{flex:0 1 140px}
+button{font:inherit;border:0;border-radius:10px;padding:10px 16px;cursor:pointer;font-weight:600;background:#e9efe7;color:var(--ink)}
+button:hover{filter:brightness(.96)}
+button.primary{background:var(--green);color:#fff}
+button.big{font-size:19px;padding:14px 28px;border-radius:14px}
+button:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-weight:500;font-size:14px;cursor:pointer}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.stat{background:var(--green-l);border-radius:10px;padding:8px 14px;font-size:14px}
+.stat b{font-size:18px;color:var(--green-d)}
+.stat.warn{background:#fdecec}.stat.warn b{color:var(--red)}
+.tbl-wrap{overflow-x:auto;margin-top:10px;border:1px solid var(--line);border-radius:10px;max-height:320px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{background:#f0f5ee;position:sticky;top:0;z-index:1}
+tr.dup td{background:#fff3f3;color:var(--red)}
+.quota-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:10px}
+.quota{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.quota .g{font-weight:700}
+.quota .c{color:var(--muted);font-size:13px}
+.quota .ins{display:flex;gap:6px;margin-top:6px}
+.quota .ins label{font-size:12px;font-weight:500;color:var(--muted);flex:1}
+.quota .ins input{padding:6px 8px}
+.seedbox{display:flex;gap:8px}
+.seedbox input{font-size:20px;font-weight:700;letter-spacing:2px;text-align:center}
+code.fp{background:#eef3ec;border-radius:6px;padding:2px 6px;font-size:13px;word-break:break-all}
+.err{color:var(--red);font-weight:600;margin-top:10px}
+.center{text-align:center}
+/* results */
+.res-group{margin-top:16px}
+.res-group h3{margin:0 0 8px;font-size:17px}
+.pills{display:flex;flex-wrap:wrap;gap:8px}
+.pill{border-radius:999px;padding:6px 14px;font-size:15px;background:var(--green-l);border:1px solid #bfe3ca}
+.pill .o{font-weight:800;color:var(--green-d);margin-right:6px}
+.pill.wait{background:#fff8e1;border-color:#f3dc92}.pill.wait .o{color:#9a7400}
+.meta{font-size:13px;color:var(--muted);margin-top:14px;border-top:1px dashed var(--line);padding-top:10px}
+/* stage */
+#stage{position:fixed;inset:0;background:radial-gradient(circle at 50% 30%,#1f6b3a,#0d2e19);color:#fff;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px 16px calc(20px + env(safe-area-inset-bottom));overflow:auto}
+#stage.on{display:flex}
+#stage .st-title{font-size:clamp(18px,3vw,28px);opacity:.85;margin-bottom:6px;text-align:center}
+#stage .st-sub{font-size:clamp(15px,2.2vw,20px);opacity:.75;margin-bottom:18px;text-align:center}
+#slot{font-size:clamp(40px,9vw,110px);font-weight:900;min-height:1.3em;text-align:center;letter-spacing:2px;text-shadow:0 4px 30px rgba(0,0,0,.35);word-break:keep-all}
+#slot.rolling{opacity:.7;filter:blur(1px)}
+#slot.pop{animation:pop .5s ease}
+@keyframes pop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.12);opacity:1}100%{transform:scale(1)}}
+#slotOrder{font-size:clamp(16px,2.5vw,24px);color:var(--gold);font-weight:800;min-height:1.5em}
+#stageList{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:1100px;margin:22px 0}
+#stageList .pill{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25);color:#fff;font-size:clamp(14px,1.8vw,19px)}
+#stageList .pill .o{color:var(--gold)}
+#stageList .pill.wait{background:rgba(242,183,5,.12);border-color:rgba(242,183,5,.4)}
+#stage .btns{justify-content:center}
+#stage button{background:rgba(255,255,255,.15);color:#fff}
+#stage button.primary{background:var(--gold);color:#3a2c00}
+.confetti{position:fixed;top:-20px;width:10px;height:14px;z-index:60;pointer-events:none;animation:fall linear forwards}
+@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+footer.credit{max-width:1000px;margin:26px auto 0;text-align:center;font-size:12px;color:#9aa69d;padding-bottom:env(safe-area-inset-bottom)}
+footer.credit a{color:inherit}
+.privacy{font-size:13px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:6px}
+#printArea{display:none}
+@media print{
+  body{background:#fff;padding:0}
+  header,main,#stage,.no-print{display:none!important}
+  #printArea{display:block;font-size:12pt;color:#000}
+  #printArea h1{font-size:18pt;text-align:center;margin:0 0 6pt}
+  #printArea table{font-size:11pt}
+  #printArea th,#printArea td{border:1px solid #888;white-space:normal}
+  #printArea th{background:#eee;position:static}
+  #printArea .sign{display:flex;justify-content:flex-end;gap:30pt;margin-top:24pt}
+  #printArea h2{font-size:13pt;margin:14pt 0 4pt}
+}
+</style>
+</head>
+<body>
+<header class="no-print">
+  <div class="logo">🌱</div>
+  <div>
+    <h1>디지털 새싹 추첨기</h1>
+    <p>신청자 명단을 넣고, 공개 추첨 번호로 공정하게 뽑아요.</p>
+  </div>
+</header>
+
+<main>
+  <div class="privacy">🔒 명단은 이 브라우저 안에서만 처리되고 어디에도 저장·전송되지 않아요. 창을 닫으면 사라지니 결과는 꼭 내려받거나 인쇄해 두세요.</div>
+
+  <!-- 1. 명단 -->
+  <section class="card">
+    <h2><span class="num">1</span>신청자 명단</h2>
+    <p class="hint">엑셀·구글 시트에서 표를 복사해 붙여넣거나, 파일(xlsx·csv)을 올려요. 한 줄에 한 명입니다. 예: <code>5학년	3반	홍길동</code></p>
+    <textarea id="raw" placeholder="학년&#9;반&#9;이름&#10;5&#9;1&#9;김새싹&#10;5&#9;2&#9;이디지&#10;6&#9;1&#9;박코딩"></textarea>
+    <div class="btns">
+      <label class="chk"><input type="checkbox" id="hasHeader" checked> 첫 줄은 제목 줄</label>
+      <span style="flex:1"></span>
+      <button id="fileBtn">📂 파일 불러오기</button>
+      <input type="file" id="file" accept=".xlsx,.xls,.csv,.txt" hidden>
+      <button id="sampleBtn">예시 넣기</button>
+      <button id="clearBtn">지우기</button>
+    </div>
+    <div id="colPick" class="row" style="margin-top:14px;display:none">
+      <div class="f"><label>나눠 뽑을 기준 (선택)</label><select id="groupCol"></select></div>
+      <div class="f"><label>화면에 크게 보일 칸</label><select id="nameCol"></select></div>
+    </div>
+    <div id="stats" class="stats"></div>
+    <div id="dupBox" style="display:none" class="btns">
+      <button id="dedupBtn">중복 신청 정리하기 (한 번만 남기기)</button>
+    </div>
+    <div class="tbl-wrap" id="previewWrap" style="display:none"><table id="preview"></table></div>
+  </section>
+
+  <!-- 2. 인원 -->
+  <section class="card">
+    <h2><span class="num">2</span>뽑을 인원</h2>
+    <p class="hint">선정 인원과 예비 인원을 정해요. 예비는 선정자가 포기하면 순서대로 채울 사람이에요.</p>
+    <div class="row">
+      <div class="f"><label>추첨 이름</label><input type="text" id="title" value="디지털 새싹 캠프 참가자 추첨"></div>
+      <div class="f s" id="totalQuota"><label>선정 인원</label><input type="number" id="winN" min="0" value="20"></div>
+      <div class="f s" id="totalWait"><label>예비 인원</label><input type="number" id="waitN" min="0" value="5"></div>
+    </div>
+    <div id="quotaGrid" class="quota-grid"></div>
+  </section>
+
+  <!-- 3. 추첨 번호 -->
+  <section class="card">
+    <h2><span class="num">3</span>공개 추첨 번호</h2>
+    <p class="hint">참관인(학생·학부모·선생님)이 정한 숫자나 단어를 넣으면, 같은 명단 + 같은 번호로 누구나 똑같은 결과를 다시 확인할 수 있어요. 비워 두면 무작위 번호를 만들어요.</p>
+    <div class="row">
+      <div class="f seedbox"><input type="text" id="seed" placeholder="예: 1016" maxlength="40"><button id="seedBtn" title="무작위 번호 만들기">🎲</button></div>
+    </div>
+    <div class="btns">
+      <label class="chk"><input type="checkbox" id="oneByOne" checked> 한 명씩 공개하기 (화면 띄워 발표할 때)</label>
+      <label class="chk"><input type="checkbox" id="mask"> 발표 화면에서 이름 가운데 가리기 (홍*동)</label>
+    </div>
+    <div id="drawErr" class="err"></div>
+    <div class="center" style="margin-top:14px"><button class="primary big" id="drawBtn">🌱 추첨 시작</button></div>
+  </section>
+
+  <!-- 4. 결과 -->
+  <section class="card" id="resultCard" style="display:none">
+    <h2><span class="num">4</span>추첨 결과</h2>
+    <div id="results"></div>
+    <div class="btns">
+      <button class="primary" id="csvBtn">⬇️ 엑셀용 파일(CSV) 받기</button>
+      <button id="printBtn">🖨️ 결과 인쇄</button>
+      <button id="copyBtn">📋 결과 복사</button>
+      <button id="replayBtn">📺 발표 화면 다시 보기</button>
+    </div>
+    <div id="meta" class="meta"></div>
+  </section>
+</main>
+
+<!-- 발표 화면 -->
+<div id="stage" class="no-print">
+  <div class="st-title" id="stTitle"></div>
+  <div class="st-sub" id="stSub"></div>
+  <div id="slotOrder"></div>
+  <div id="slot">🌱</div>
+  <div id="stageList"></div>
+  <div class="btns">
+    <button class="primary big" id="nextBtn">다음 사람 뽑기</button>
+    <button id="allBtn">모두 공개</button>
+    <button id="closeStage">닫기</button>
+  </div>
+</div>
+
+<div id="printArea"></div>
+
+<footer class="credit no-print">개발자 추국현 · 문의 <a href="mailto:chugukhyeon@hanmail.net">chugukhyeon@hanmail.net</a></footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { header: [], rows: [], result: null };
+
+/* ---------- 입력 파싱 ---------- */
+function parseCSVLine(line, sep) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') q = false;
+      else cur += c;
+    } else if (c === '"' && cur === '') q = true;
+    else if (c === sep) { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+function parseRaw(text) {
+  const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim() !== '');
+  if (!lines.length) return [];
+  const sep = lines.some(l => l.includes('\t')) ? '\t' : (lines.some(l => l.includes(',')) ? ',' : null);
+  return lines.map(l => sep ? parseCSVLine(l, sep) : [l.trim()]);
+}
+function norm(s) { return String(s ?? '').replace(/\s+/g, ' ').trim(); }
+function rowKey(r) { return r.map(norm).join(' | ').toLowerCase(); }
+
+function refresh() {
+  let table = parseRaw($('#raw').value);
+  const hasHeader = $('#hasHeader').checked && table.length > 0;
+  const width = Math.max(0, ...table.map(r => r.length));
+  table = table.map(r => { const a = r.slice(); while (a.length < width) a.push(''); return a; });
+  state.header = hasHeader ? table[0].map((h, i) => h || `${i + 1}번째 칸`) : Array.from({ length: width }, (_, i) => width === 1 ? '이름' : `${i + 1}번째 칸`);
+  state.rows = (hasHeader ? table.slice(1) : table).filter(r => r.some(c => c !== ''));
+  buildColumnPickers();
+  renderPreview();
+  renderQuotas();
+}
+
+function buildColumnPickers() {
+  const g = $('#groupCol'), n = $('#nameCol');
+  const prevG = g.value, prevN = n.value;
+  const w = state.header.length;
+  $('#colPick').style.display = w > 1 ? 'flex' : 'none';
+  g.innerHTML = '<option value="">나누지 않음 (전체에서 뽑기)</option>' + state.header.map((h, i) => `<option value="${i}">${esc(h)}</option>`).join('');
+  n.innerHTML = '<option value="all">모든 칸 함께</option>' + state.header.map((h, i) => `<option value="${i}">${esc(h)}</option>`).join('');
+  const sig = state.header.join('\t'), same = sig === buildColumnPickers.sig;
+  buildColumnPickers.sig = sig;
+  if (same && [...g.options].some(o => o.value === prevG)) g.value = prevG;
+  if (same && [...n.options].some(o => o.value === prevN)) n.value = prevN;
+  else {
+    const guess = state.header.findIndex(h => /이름|성명|name/i.test(h));
+    n.value = guess >= 0 ? String(guess) : (w > 1 ? String(w - 1) : 'all');
+  }
+}
+
+function dupKeys() {
+  const seen = new Map();
+  state.rows.forEach(r => { const k = rowKey(r); seen.set(k, (seen.get(k) || 0) + 1); });
+  return seen;
+}
+
+function renderPreview() {
+  const counts = dupKeys();
+  const dups = state.rows.filter(r => counts.get(rowKey(r)) > 1).length;
+  const unique = counts.size;
+  const s = [`<div class="stat">신청 <b>${state.rows.length}</b>명</div>`];
+  if (dups) s.push(`<div class="stat warn">똑같은 줄 <b>${dups}</b>개 (실제 ${unique}명)</div>`);
+  $('#stats').innerHTML = state.rows.length ? s.join('') : '';
+  $('#dupBox').style.display = dups ? 'flex' : 'none';
+  $('#previewWrap').style.display = state.rows.length ? 'block' : 'none';
+  $('#preview').innerHTML = `<thead><tr><th>#</th>${state.header.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
+    state.rows.map((r, i) => `<tr class="${counts.get(rowKey(r)) > 1 ? 'dup' : ''}"><td>${i + 1}</td>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('') + '</tbody>';
+}
+
+function groupsOf(rows) {
+  const gi = $('#groupCol').value;
+  const map = new Map();
+  rows.forEach(r => {
+    const k = gi === '' ? '전체' : (norm(r[+gi]) || '(빈칸)');
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(r);
+  });
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ko', { numeric: true }));
+}
+
+const quotaMemo = {};
+function renderQuotas() {
+  const grouped = $('#groupCol').value !== '';
+  $('#totalQuota').style.display = grouped ? 'none' : '';
+  $('#totalWait').style.display = grouped ? 'none' : '';
+  const box = $('#quotaGrid');
+  if (!grouped) { box.innerHTML = ''; return; }
+  box.querySelectorAll('.quota').forEach(q => { quotaMemo[q.dataset.g] = { win: q.querySelector('.qw').value, wait: q.querySelector('.qx').value }; });
+  box.innerHTML = groupsOf(state.rows).map(([g, list]) => {
+    const m = quotaMemo[g] || { win: Math.min(list.length, 10), wait: 3 };
+    return `<div class="quota" data-g="${esc(g)}"><div class="g">${esc(g)}</div><div class="c">신청 ${list.length}명</div>
+      <div class="ins"><label>선정<input type="number" min="0" class="qw" value="${m.win}"></label><label>예비<input type="number" min="0" class="qx" value="${m.wait}"></label></div></div>`;
+  }).join('');
+}
+
+/* ---------- 공정한 난수 (SHA-256 기반, 같은 입력 → 같은 결과) ---------- */
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function makeRng(seedStr) {
+  let counter = 0, pool = [];
+  return async function nextU32() {
+    if (!pool.length) {
+      const h = await sha256Hex(`${seedStr}#${counter++}`);
+      for (let i = 0; i < 64; i += 8) pool.push(parseInt(h.slice(i, i + 8), 16));
+    }
+    return pool.shift();
+  };
+}
+async function randInt(next, n) { // 0..n-1, 치우침 없이
+  const limit = Math.floor(0x100000000 / n) * n;
+  let x; do { x = await next(); } while (x >= limit);
+  return x % n;
+}
+async function seededShuffle(arr, seedStr) {
+  const a = arr.slice(), next = await makeRng(seedStr);
+  for (let i = a.length - 1; i > 0; i--) { const j = await randInt(next, i + 1); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+/* ---------- 추첨 ---------- */
+async function draw() {
+  $('#drawErr').textContent = '';
+  if (!state.rows.length) return $('#drawErr').textContent = '신청자 명단을 먼저 넣어 주세요.';
+  const counts = dupKeys();
+  if ([...counts.values()].some(v => v > 1) && !confirm('똑같은 줄(중복 신청)이 있어요. 그대로 추첨할까요?\n(취소하면 \'중복 신청 정리하기\'를 먼저 할 수 있어요)')) return;
+  let seed = norm($('#seed').value);
+  if (!seed) { seed = randomSeed(); $('#seed').value = seed; }
+
+  // 입력 순서와 상관없이 같은 결과가 나오도록 정렬 후 섞기
+  const sorted = state.rows.slice().sort((a, b) => rowKey(a).localeCompare(rowKey(b), 'ko', { numeric: true }));
+  const fingerprint = (await sha256Hex(sorted.map(rowKey).join('\n'))).slice(0, 12);
+  const grouped = $('#groupCol').value !== '';
+  const groups = [];
+  for (const [g, list] of groupsOf(sorted)) {
+    let win, wait;
+    if (grouped) {
+      const q = [...document.querySelectorAll('.quota')].find(el => el.dataset.g === g);
+      win = +q.querySelector('.qw').value || 0; wait = +q.querySelector('.qx').value || 0;
+    } else { win = +$('#winN').value || 0; wait = +$('#waitN').value || 0; }
+    win = Math.max(0, win); wait = Math.max(0, wait);
+    const order = await seededShuffle(list, `${seed}|${g}|${fingerprint}`);
+    groups.push({ g, total: list.length, win: order.slice(0, win), wait: order.slice(win, win + wait), rest: order.slice(win + wait) });
+  }
+  state.result = { seed, fingerprint, groups, time: new Date(), title: norm($('#title').value) || '추첨', nameCol: $('#nameCol').value, header: state.header.slice() };
+  renderResults();
+  openStage();
+}
+
+function displayName(r, masked) {
+  const nc = state.result.nameCol;
+  let s = nc === 'all' ? r.map(norm).filter(Boolean).join(' ') : norm(r[+nc]);
+  if (masked && nc !== 'all') s = maskName(s);
+  else if (masked) s = r.map((c, i) => i === state.header.findIndex(h => /이름|성명|name/i.test(h)) ? maskName(norm(c)) : norm(c)).filter(Boolean).join(' ');
+  return s || '(이름 없음)';
+}
+function maskName(s) {
+  const ch = [...s];
+  if (ch.length <= 1) return s;
+  if (ch.length === 2) return ch[0] + '*';
+  return ch[0] + '*'.repeat(ch.length - 2) + ch[ch.length - 1];
+}
+
+function renderResults() {
+  const R = state.result;
+  $('#resultCard').style.display = 'block';
+  $('#results').innerHTML = R.groups.map(G => `
+    <div class="res-group">
+      <h3>${R.groups.length > 1 || G.g !== '전체' ? esc(G.g) + ' · ' : ''}신청 ${G.total}명 → 선정 ${G.win.length}명${G.wait.length ? `, 예비 ${G.wait.length}명` : ''}</h3>
+      <div class="pills">${G.win.map((r, i) => `<span class="pill"><span class="o">${i + 1}</span>${esc(displayName(r))}</span>`).join('') || '<span class="hint">선정 없음</span>'}</div>
+      ${G.wait.length ? `<div class="pills" style="margin-top:8px">${G.wait.map((r, i) => `<span class="pill wait"><span class="o">예비${i + 1}</span>${esc(displayName(r))}</span>`).join('')}</div>` : ''}
+    </div>`).join('');
+  $('#meta').innerHTML = `추첨 일시 ${fmtTime(R.time)} · 공개 추첨 번호 <code class="fp">${esc(R.seed)}</code> · 명단 확인값 <code class="fp">${R.fingerprint}</code><br>
+    같은 명단(순서 무관)과 같은 추첨 번호를 넣으면 언제든 똑같은 결과가 나옵니다. 명단이 한 글자라도 바뀌면 확인값이 달라져요.`;
+  $('#resultCard').scrollIntoView({ behavior: 'smooth' });
+}
+
+/* ---------- 발표 화면 ---------- */
+let queue = [], revealed = 0, rolling = false;
+function openStage() {
+  const R = state.result, masked = $('#mask').checked;
+  queue = [];
+  R.groups.forEach(G => {
+    G.win.forEach((r, i) => queue.push({ g: G.g, label: `${i + 1}번`, name: displayName(r, masked), wait: false }));
+    G.wait.forEach((r, i) => queue.push({ g: G.g, label: `예비 ${i + 1}번`, name: displayName(r, masked), wait: true }));
+  });
+  revealed = 0;
+  $('#stTitle').textContent = R.title;
+  $('#stSub').textContent = `공개 추첨 번호 ${R.seed}`;
+  $('#stageList').innerHTML = '';
+  $('#slot').textContent = '🌱'; $('#slotOrder').textContent = '';
+  $('#stage').classList.add('on');
+  updateStageBtns();
+  if (!$('#oneByOne').checked) revealAll();
+}
+function updateStageBtns() {
+  const done = revealed >= queue.length;
+  $('#nextBtn').style.display = done ? 'none' : '';
+  $('#allBtn').style.display = done ? 'none' : '';
+  if (!done) { const q = queue[revealed]; $('#nextBtn').textContent = `${multi() ? q.g + ' ' : ''}${q.label} 뽑기`; }
+}
+function multi() { return state.result.groups.length > 1; }
+function addStagePill(q) {
+  const el = document.createElement('span');
+  el.className = 'pill' + (q.wait ? ' wait' : '');
+  el.innerHTML = `<span class="o">${multi() ? esc(q.g) + ' ' : ''}${esc(q.label)}</span>${esc(q.name)}`;
+  $('#stageList').appendChild(el);
+}
+async function revealNext() {
+  if (rolling || revealed >= queue.length) return;
+  rolling = true;
+  const q = queue[revealed], slot = $('#slot');
+  const pool = queue.map(x => x.name);
+  $('#slotOrder').textContent = `${multi() ? q.g + ' · ' : ''}${q.label}`;
+  slot.classList.add('rolling');
+  const steps = 22;
+  for (let i = 0; i < steps; i++) {
+    slot.textContent = pool[Math.floor(Math.random() * pool.length)]; // 연출용 (결과와 무관)
+    await sleep(40 + i * i * 0.6);
+  }
+  slot.classList.remove('rolling');
+  slot.textContent = q.name;
+  slot.classList.remove('pop'); void slot.offsetWidth; slot.classList.add('pop');
+  if (!q.wait) confetti(40);
+  addStagePill(q);
+  revealed++;
+  rolling = false;
+  updateStageBtns();
+}
+function revealAll() {
+  if (rolling) return;
+  while (revealed < queue.length) addStagePill(queue[revealed++]);
+  $('#slotOrder').textContent = '';
+  $('#slot').textContent = '🎉 추첨 완료';
+  $('#slot').classList.remove('pop'); void $('#slot').offsetWidth; $('#slot').classList.add('pop');
+  confetti(90);
+  updateStageBtns();
+}
+function confetti(n) {
+  const colors = ['#f2b705', '#2f9e54', '#7bd88f', '#ffffff', '#ff8a65', '#64b5f6'];
+  for (let i = 0; i < n; i++) {
+    const c = document.createElement('div');
+    c.className = 'confetti';
+    c.style.left = Math.random() * 100 + 'vw';
+    c.style.background = colors[i % colors.length];
+    c.style.animationDuration = 1.8 + Math.random() * 1.8 + 's';
+    c.style.animationDelay = Math.random() * .4 + 's';
+    document.body.appendChild(c);
+    setTimeout(() => c.remove(), 4200);
+  }
+}
+
+/* ---------- 내보내기 ---------- */
+function resultRows() {
+  const R = state.result, out = [];
+  R.groups.forEach(G => {
+    G.win.forEach((r, i) => out.push([G.g, '선정', i + 1, ...r]));
+    G.wait.forEach((r, i) => out.push([G.g, '예비', i + 1, ...r]));
+    G.rest.forEach(r => out.push([G.g, '미선정', '', ...r]));
+  });
+  return out;
+}
+function downloadCSV() {
+  const R = state.result;
+  const head = ['구분', '결과', '순번', ...R.header];
+  const lines = [head, ...resultRows()].map(r => r.map(c => {
+    const s = String(c ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(','));
+  lines.push('', `추첨 일시,${fmtTime(R.time)}`, `공개 추첨 번호,${R.seed}`, `명단 확인값,${R.fingerprint}`);
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${R.title}_결과_${fmtDate(R.time)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function buildPrint() {
+  const R = state.result;
+  const th = `<tr><th>결과</th><th>순번</th>${R.header.map(h => `<th>${esc(h)}</th>`).join('')}</tr>`;
+  $('#printArea').innerHTML = `<h1>${esc(R.title)} 결과</h1>
+    <p>추첨 일시: ${fmtTime(R.time)} &nbsp;|&nbsp; 공개 추첨 번호: <b>${esc(R.seed)}</b> &nbsp;|&nbsp; 명단 확인값: ${R.fingerprint}</p>` +
+    R.groups.map(G => `<h2>${esc(G.g)} (신청 ${G.total}명 / 선정 ${G.win.length}명 / 예비 ${G.wait.length}명)</h2>
+      <table>${th}${G.win.map((r, i) => `<tr><td>선정</td><td>${i + 1}</td>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}
+      ${G.wait.map((r, i) => `<tr><td>예비</td><td>${i + 1}</td>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table>`).join('') +
+    `<div class="sign"><span>추첨자 ____________ (인)</span><span>참관인 ____________ (인)</span></div>`;
+}
+async function copyResult() {
+  const R = state.result;
+  const txt = [`[${R.title}] ${fmtTime(R.time)} · 추첨 번호 ${R.seed}`].concat(
+    R.groups.map(G => `\n■ ${G.g}\n선정: ${G.win.map((r, i) => `${i + 1}.${displayName(r)}`).join(', ')}` + (G.wait.length ? `\n예비: ${G.wait.map((r, i) => `${i + 1}.${displayName(r)}`).join(', ')}` : ''))).join('\n');
+  try { await navigator.clipboard.writeText(txt); alert('결과를 복사했어요.'); }
+  catch { prompt('아래 내용을 복사하세요', txt); }
+}
+
+/* ---------- 도우미 ---------- */
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function randomSeed() { const a = new Uint32Array(1); crypto.getRandomValues(a); return String(a[0] % 1000000).padStart(6, '0'); }
+function fmtDate(d) { return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; }
+function fmtTime(d) { return d.toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }); }
+
+async function loadFile(f) {
+  const name = f.name.toLowerCase();
+  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    if (!window.XLSX) return alert('엑셀 읽기 도구를 불러오지 못했어요. 엑셀에서 표를 복사해 붙여넣어 주세요.');
+    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+    $('#raw').value = rows.filter(r => r.some(c => String(c).trim() !== '')).map(r => r.map(c => String(c).replace(/[\t\n]/g, ' ')).join('\t')).join('\n');
+  } else {
+    $('#raw').value = await f.text();
+  }
+  refresh();
+}
+
+/* ---------- 이벤트 ---------- */
+$('#raw').addEventListener('input', refresh);
+$('#hasHeader').addEventListener('change', refresh);
+$('#groupCol').addEventListener('change', renderQuotas);
+$('#fileBtn').onclick = () => $('#file').click();
+$('#file').onchange = e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; };
+$('#sampleBtn').onclick = () => {
+  const fam = '김이박최정강조윤장임한오서신권황안송류홍'.split(''), giv = ['서준', '하윤', '도윤', '서아', '시우', '지호', '하은', '예준', '수아', '지우', '은우', '유나', '민준', '채원', '이안', '다은'];
+  const lines = ['학년\t반\t이름'];
+  for (let i = 0; i < 46; i++) lines.push(`${4 + (i % 3)}학년\t${1 + (i * 7 % 4)}반\t${fam[(i * 5) % fam.length]}${giv[(i * 3 + Math.floor(i / 16)) % giv.length]}`);
+  $('#raw').value = lines.join('\n'); $('#hasHeader').checked = true; refresh();
+};
+$('#clearBtn').onclick = () => { if (!$('#raw').value || confirm('명단을 모두 지울까요?')) { $('#raw').value = ''; refresh(); } };
+$('#dedupBtn').onclick = () => {
+  const seen = new Set(), keep = state.rows.filter(r => { const k = rowKey(r); if (seen.has(k)) return false; seen.add(k); return true; });
+  const head = $('#hasHeader').checked ? [state.header] : [];
+  $('#raw').value = [...head, ...keep].map(r => r.join('\t')).join('\n');
+  refresh();
+};
+$('#seedBtn').onclick = () => $('#seed').value = randomSeed();
+$('#drawBtn').onclick = draw;
+$('#nextBtn').onclick = revealNext;
+$('#allBtn').onclick = revealAll;
+$('#closeStage').onclick = () => $('#stage').classList.remove('on');
+$('#replayBtn').onclick = openStage;
+$('#csvBtn').onclick = downloadCSV;
+$('#printBtn').onclick = () => { buildPrint(); window.print(); };
+$('#copyBtn').onclick = copyResult;
+document.addEventListener('keydown', e => {
+  if (!$('#stage').classList.contains('on')) return;
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); revealNext(); }
+  if (e.key === 'Escape') $('#stage').classList.remove('on');
+});
+window.addEventListener('beforeunload', e => { if (state.result) { e.preventDefault(); e.returnValue = ''; } });
+refresh();
+</script>
+</body>
+</html>
