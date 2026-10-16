@@ -130,13 +130,17 @@ footer.credit a{color:inherit}
       <button id="sampleBtn">예시 넣기</button>
       <button id="clearBtn">지우기</button>
     </div>
-    <div id="colPick" class="row" style="margin-top:14px;display:none">
-      <div class="f"><label>나눠 뽑을 기준 (선택)</label><select id="groupCol"></select></div>
-      <div class="f"><label>화면에 크게 보일 칸</label><select id="nameCol"></select></div>
+    <div id="colPick" style="margin-top:14px;display:none">
+      <label>추첨에 쓸 칸 <span class="hint" style="font-weight:400">— 체크한 칸만 화면·인쇄에 보이고, 같은 학생인지 가릴 때도 이 칸으로 비교해요. 연락처·이메일은 CSV 파일에만 들어가요.</span></label>
+      <div id="showCols" class="btns" style="margin-top:6px"></div>
+      <div class="row" style="margin-top:10px">
+        <div class="f"><label>나눠 뽑을 기준 (선택)</label><select id="groupCol"></select></div>
+        <div class="f"><label>이름 칸 (가리기용)</label><select id="nameCol"></select></div>
+      </div>
     </div>
     <div id="stats" class="stats"></div>
     <div id="dupBox" style="display:none" class="btns">
-      <button id="dedupBtn">중복 신청 정리하기 (한 번만 남기기)</button>
+      <button id="dedupBtn">중복 신청 정리하기 (먼저 낸 것만 남기기)</button>
     </div>
     <div class="tbl-wrap" id="previewWrap" style="display:none"><table id="preview"></table></div>
   </section>
@@ -202,7 +206,7 @@ footer.credit a{color:inherit}
 
 <script>
 const $ = s => document.querySelector(s);
-const state = { header: [], rows: [], result: null };
+const state = { header: [], rows: [], show: [], result: null };
 
 /* ---------- 입력 파싱 ---------- */
 function parseCSVLine(line, sep) {
@@ -227,7 +231,10 @@ function parseRaw(text) {
   return lines.map(l => sep ? parseCSVLine(l, sep) : [l.trim()]);
 }
 function norm(s) { return String(s ?? '').replace(/\s+/g, ' ').trim(); }
-function rowKey(r) { return r.map(norm).join(' | ').toLowerCase(); }
+function shown() { return state.show.length ? state.show : state.header.map((_, i) => i); }
+function rowKey(r) { return shown().map(i => norm(r[i])).join(' | ').toLowerCase(); }
+// 구글 설문 응답에서 추첨에 필요 없는 칸 (제출 시각·이메일·동의·연락처·문의)
+const HIDE_RE = /timestamp|타임스탬프|email|이메일|메일|동의|연락처|전화|휴대폰|핸드폰|phone|문의|전달|기타|비고|주소/i;
 
 function refresh() {
   let table = parseRaw($('#raw').value);
@@ -245,16 +252,24 @@ function buildColumnPickers() {
   const g = $('#groupCol'), n = $('#nameCol');
   const prevG = g.value, prevN = n.value;
   const w = state.header.length;
-  $('#colPick').style.display = w > 1 ? 'flex' : 'none';
+  $('#colPick').style.display = w > 1 ? 'block' : 'none';
   g.innerHTML = '<option value="">나누지 않음 (전체에서 뽑기)</option>' + state.header.map((h, i) => `<option value="${i}">${esc(h)}</option>`).join('');
-  n.innerHTML = '<option value="all">모든 칸 함께</option>' + state.header.map((h, i) => `<option value="${i}">${esc(h)}</option>`).join('');
+  n.innerHTML = '<option value="">가리지 않음</option>' + state.header.map((h, i) => `<option value="${i}">${esc(h)}</option>`).join('');
   const sig = state.header.join('\t'), same = sig === buildColumnPickers.sig;
   buildColumnPickers.sig = sig;
+  if (!same) {
+    state.show = state.header.map((h, i) => i).filter(i => !HIDE_RE.test(state.header[i]));
+    if (!state.show.length) state.show = state.header.map((_, i) => i);
+  }
+  $('#showCols').innerHTML = state.header.map((h, i) => `<label class="chk"><input type="checkbox" data-i="${i}" ${state.show.includes(i) ? 'checked' : ''}> ${esc(h)}</label>`).join('');
   if (same && [...g.options].some(o => o.value === prevG)) g.value = prevG;
+  else {
+    g.value = '';
+  }
   if (same && [...n.options].some(o => o.value === prevN)) n.value = prevN;
   else {
     const guess = state.header.findIndex(h => /이름|성명|name/i.test(h));
-    n.value = guess >= 0 ? String(guess) : (w > 1 ? String(w - 1) : 'all');
+    n.value = guess >= 0 ? String(guess) : (w === 1 ? '0' : '');
   }
 }
 
@@ -269,12 +284,19 @@ function renderPreview() {
   const dups = state.rows.filter(r => counts.get(rowKey(r)) > 1).length;
   const unique = counts.size;
   const s = [`<div class="stat">신청 <b>${state.rows.length}</b>명</div>`];
-  if (dups) s.push(`<div class="stat warn">똑같은 줄 <b>${dups}</b>개 (실제 ${unique}명)</div>`);
+  if (dups) s.push(`<div class="stat warn">같은 학생으로 보이는 줄 <b>${dups}</b>개 (실제 ${unique}명)</div>`);
+  const nc = $('#nameCol').value;
+  if (nc !== '') {
+    const nm = new Map(), seen = new Set();
+    state.rows.forEach(r => { const rk = rowKey(r); if (seen.has(rk)) return; seen.add(rk); const k = norm(r[+nc]); nm.set(k, (nm.get(k) || 0) + 1); });
+    const same = [...nm.values()].filter(v => v > 1).length;
+    if (same) s.push(`<div class="stat">이름이 같은 학생 <b>${same}</b>쌍 — 학년·반 칸도 함께 보이게 두세요</div>`);
+  }
   $('#stats').innerHTML = state.rows.length ? s.join('') : '';
   $('#dupBox').style.display = dups ? 'flex' : 'none';
   $('#previewWrap').style.display = state.rows.length ? 'block' : 'none';
-  $('#preview').innerHTML = `<thead><tr><th>#</th>${state.header.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
-    state.rows.map((r, i) => `<tr class="${counts.get(rowKey(r)) > 1 ? 'dup' : ''}"><td>${i + 1}</td>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('') + '</tbody>';
+  $('#preview').innerHTML = `<thead><tr><th>#</th>${shown().map(i => `<th>${esc(state.header[i])}</th>`).join('')}</tr></thead><tbody>` +
+    state.rows.map((r, i) => `<tr class="${counts.get(rowKey(r)) > 1 ? 'dup' : ''}"><td>${i + 1}</td>${shown().map(j => `<td>${esc(r[j])}</td>`).join('')}</tr>`).join('') + '</tbody>';
 }
 
 function groupsOf(rows) {
@@ -353,17 +375,21 @@ async function draw() {
     const order = await seededShuffle(list, `${seed}|${g}|${fingerprint}`);
     groups.push({ g, total: list.length, win: order.slice(0, win), wait: order.slice(win, win + wait), rest: order.slice(win + wait) });
   }
-  state.result = { seed, fingerprint, groups, time: new Date(), title: norm($('#title').value) || '추첨', nameCol: $('#nameCol').value, header: state.header.slice() };
+  state.result = { seed, fingerprint, groups, time: new Date(), title: norm($('#title').value) || '추첨', nameCol: $('#nameCol').value, show: shown().slice(), header: state.header.slice() };
   renderResults();
   openStage();
 }
 
 function displayName(r, masked) {
-  const nc = state.result.nameCol;
-  let s = nc === 'all' ? r.map(norm).filter(Boolean).join(' ') : norm(r[+nc]);
-  if (masked && nc !== 'all') s = maskName(s);
-  else if (masked) s = r.map((c, i) => i === state.header.findIndex(h => /이름|성명|name/i.test(h)) ? maskName(norm(c)) : norm(c)).filter(Boolean).join(' ');
-  return s || '(이름 없음)';
+  const R = state.result, nc = R.nameCol === '' ? -1 : +R.nameCol;
+  const unit = { '반': '반', '번호': '번', '번': '번' };
+  const s = R.show.map(i => {
+    let v = norm(r[i]);
+    const u = unit[norm(R.header[i])];
+    if (u && /^\d+$/.test(v)) v += u; // 3 → 3반, 16 → 16번
+    return masked && i === nc ? maskName(v) : v;
+  }).filter(Boolean).join(' ');
+  return s || '(빈 줄)';
 }
 function maskName(s) {
   const ch = [...s];
@@ -488,12 +514,13 @@ function downloadCSV() {
 }
 function buildPrint() {
   const R = state.result;
-  const th = `<tr><th>결과</th><th>순번</th>${R.header.map(h => `<th>${esc(h)}</th>`).join('')}</tr>`;
+  const th = `<tr><th>결과</th><th>순번</th>${R.show.map(i => `<th>${esc(R.header[i])}</th>`).join('')}</tr>`;
+  const tds = r => R.show.map(i => `<td>${esc(r[i])}</td>`).join('');
   $('#printArea').innerHTML = `<h1>${esc(R.title)} 결과</h1>
     <p>추첨 일시: ${fmtTime(R.time)} &nbsp;|&nbsp; 공개 추첨 번호: <b>${esc(R.seed)}</b> &nbsp;|&nbsp; 명단 확인값: ${R.fingerprint}</p>` +
     R.groups.map(G => `<h2>${esc(G.g)} (신청 ${G.total}명 / 선정 ${G.win.length}명 / 예비 ${G.wait.length}명)</h2>
-      <table>${th}${G.win.map((r, i) => `<tr><td>선정</td><td>${i + 1}</td>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}
-      ${G.wait.map((r, i) => `<tr><td>예비</td><td>${i + 1}</td>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table>`).join('') +
+      <table>${th}${G.win.map((r, i) => `<tr><td>선정</td><td>${i + 1}</td>${tds(r)}</tr>`).join('')}
+      ${G.wait.map((r, i) => `<tr><td>예비</td><td>${i + 1}</td>${tds(r)}</tr>`).join('')}</table>`).join('') +
     `<div class="sign"><span>추첨자 ____________ (인)</span><span>참관인 ____________ (인)</span></div>`;
 }
 async function copyResult() {
@@ -513,6 +540,9 @@ function fmtTime(d) { return d.toLocaleString('ko-KR', { dateStyle: 'medium', ti
 
 async function loadFile(f) {
   const name = f.name.toLowerCase();
+  // 구글 설문 파일 이름에서 추첨 이름 가져오기: "○○ 신청서 (응답).xlsx" → "○○ 추첨"
+  const base = f.name.replace(/\.[^.]+$/, '').replace(/\s*\(응답\)\s*$/, '').replace(/\s*(참가\s*)?신청(서)?$/, '').trim();
+  if (base && $('#title').value === $('#title').defaultValue) $('#title').value = `${base} 추첨`;
   if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
     if (!window.XLSX) return alert('엑셀 읽기 도구를 불러오지 못했어요. 엑셀에서 표를 복사해 붙여넣어 주세요.');
     const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
@@ -529,6 +559,11 @@ async function loadFile(f) {
 $('#raw').addEventListener('input', refresh);
 $('#hasHeader').addEventListener('change', refresh);
 $('#groupCol').addEventListener('change', renderQuotas);
+$('#nameCol').addEventListener('change', renderPreview);
+$('#showCols').addEventListener('change', () => {
+  state.show = [...document.querySelectorAll('#showCols input:checked')].map(x => +x.dataset.i);
+  renderPreview();
+});
 $('#fileBtn').onclick = () => $('#file').click();
 $('#file').onchange = e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; };
 $('#sampleBtn').onclick = () => {
