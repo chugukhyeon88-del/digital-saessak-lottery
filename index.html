@@ -131,7 +131,7 @@ footer.credit a{color:inherit}
       <button id="clearBtn">지우기</button>
     </div>
     <div id="colPick" style="margin-top:14px;display:none">
-      <label>추첨에 쓸 칸 <span class="hint" style="font-weight:400">— 체크한 칸만 화면·인쇄에 보이고, 같은 학생인지 가릴 때도 이 칸으로 비교해요. 연락처·이메일은 CSV 파일에만 들어가요.</span></label>
+      <label>발표 화면에 보일 칸 <span class="hint" style="font-weight:400">— 이름이 같은 학생은 김연우(4)·김연우(5)처럼 학년(필요하면 반·번호)을 붙여 구분해요. 연락처·이메일은 CSV 파일에만 들어가요.</span></label>
       <div id="showCols" class="btns" style="margin-top:6px"></div>
       <div class="row" style="margin-top:10px">
         <div class="f"><label>나눠 뽑을 기준 (선택)</label><select id="groupCol"></select></div>
@@ -206,7 +206,7 @@ footer.credit a{color:inherit}
 
 <script>
 const $ = s => document.querySelector(s);
-const state = { header: [], rows: [], show: [], result: null };
+const state = { header: [], rows: [], show: [], id: [], result: null };
 
 /* ---------- 입력 파싱 ---------- */
 function parseCSVLine(line, sep) {
@@ -231,8 +231,10 @@ function parseRaw(text) {
   return lines.map(l => sep ? parseCSVLine(l, sep) : [l.trim()]);
 }
 function norm(s) { return String(s ?? '').replace(/\s+/g, ' ').trim(); }
-function shown() { return state.show.length ? state.show : state.header.map((_, i) => i); }
-function rowKey(r) { return shown().map(i => norm(r[i])).join(' | ').toLowerCase(); }
+function shown() { return state.show.length ? state.show : idCols(); }
+// 같은 학생인지 가리는 칸: 학년·반·번호·이름처럼 연락처 등을 뺀 모든 칸 (화면 표시 선택과 무관)
+function idCols() { return state.id.length ? state.id : state.header.map((_, i) => i); }
+function rowKey(r) { return idCols().map(i => norm(r[i])).join(' | ').toLowerCase(); }
 // 구글 설문 응답에서 추첨에 필요 없는 칸 (제출 시각·이메일·동의·연락처·문의)
 const HIDE_RE = /timestamp|타임스탬프|email|이메일|메일|동의|연락처|전화|휴대폰|핸드폰|phone|문의|전달|기타|비고|주소/i;
 
@@ -258,8 +260,9 @@ function buildColumnPickers() {
   const sig = state.header.join('\t'), same = sig === buildColumnPickers.sig;
   buildColumnPickers.sig = sig;
   if (!same) {
-    state.show = state.header.map((h, i) => i).filter(i => !HIDE_RE.test(state.header[i]));
-    if (!state.show.length) state.show = state.header.map((_, i) => i);
+    state.id = state.header.map((h, i) => i).filter(i => !HIDE_RE.test(state.header[i]));
+    const ni = state.header.findIndex(h => /이름|성명|name/i.test(h));
+    state.show = ni >= 0 && w > 1 ? [ni] : idCols().slice();
   }
   $('#showCols').innerHTML = state.header.map((h, i) => `<label class="chk"><input type="checkbox" data-i="${i}" ${state.show.includes(i) ? 'checked' : ''}> ${esc(h)}</label>`).join('');
   if (same && [...g.options].some(o => o.value === prevG)) g.value = prevG;
@@ -287,16 +290,15 @@ function renderPreview() {
   if (dups) s.push(`<div class="stat warn">같은 학생으로 보이는 줄 <b>${dups}</b>개 (실제 ${unique}명)</div>`);
   const nc = $('#nameCol').value;
   if (nc !== '') {
-    const nm = new Map(), seen = new Set();
-    state.rows.forEach(r => { const rk = rowKey(r); if (seen.has(rk)) return; seen.add(rk); const k = norm(r[+nc]); nm.set(k, (nm.get(k) || 0) + 1); });
-    const same = [...nm.values()].filter(v => v > 1).length;
-    if (same) s.push(`<div class="stat">이름이 같은 학생 <b>${same}</b>쌍 — 학년·반 칸도 함께 보이게 두세요</div>`);
+    const tags = homonymTags(state.rows, shown(), state.header);
+    const labels = [...new Set(state.rows.filter(r => tags.has(rowKey(r))).map(r => baseLabel(r, shown(), state.header) + `(${tags.get(rowKey(r))})`))];
+    if (labels.length) s.push(`<div class="stat">이름이 같은 학생 <b>${labels.length}</b>명 → ${labels.map(esc).join(', ')}로 구분해 보여요</div>`);
   }
   $('#stats').innerHTML = state.rows.length ? s.join('') : '';
   $('#dupBox').style.display = dups ? 'flex' : 'none';
   $('#previewWrap').style.display = state.rows.length ? 'block' : 'none';
-  $('#preview').innerHTML = `<thead><tr><th>#</th>${shown().map(i => `<th>${esc(state.header[i])}</th>`).join('')}</tr></thead><tbody>` +
-    state.rows.map((r, i) => `<tr class="${counts.get(rowKey(r)) > 1 ? 'dup' : ''}"><td>${i + 1}</td>${shown().map(j => `<td>${esc(r[j])}</td>`).join('')}</tr>`).join('') + '</tbody>';
+  $('#preview').innerHTML = `<thead><tr><th>#</th>${idCols().map(i => `<th>${esc(state.header[i])}</th>`).join('')}</tr></thead><tbody>` +
+    state.rows.map((r, i) => `<tr class="${counts.get(rowKey(r)) > 1 ? 'dup' : ''}"><td>${i + 1}</td>${idCols().map(j => `<td>${esc(r[j])}</td>`).join('')}</tr>`).join('') + '</tbody>';
 }
 
 function groupsOf(rows) {
@@ -375,20 +377,50 @@ async function draw() {
     const order = await seededShuffle(list, `${seed}|${g}|${fingerprint}`);
     groups.push({ g, total: list.length, win: order.slice(0, win), wait: order.slice(win, win + wait), rest: order.slice(win + wait) });
   }
-  state.result = { seed, fingerprint, groups, time: new Date(), title: norm($('#title').value) || '추첨', nameCol: $('#nameCol').value, show: shown().slice(), header: state.header.slice() };
+  state.result = { seed, fingerprint, groups, time: new Date(), title: norm($('#title').value) || '추첨', nameCol: $('#nameCol').value, show: shown().slice(), id: idCols().slice(), header: state.header.slice() };
+  state.result.tags = homonymTags(state.rows, state.result.show, state.result.header);
   renderResults();
   openStage();
 }
 
+const UNIT = { '반': '반', '번호': '번', '번': '번' };
+function cellText(r, i, header) {
+  let v = norm(r[i]);
+  const u = UNIT[norm(header[i])];
+  if (u && /^\d+$/.test(v)) v += u; // 3 → 3반, 16 → 16번
+  return v;
+}
+function baseLabel(r, show, header, maskIdx = -1) {
+  return show.map(i => i === maskIdx ? maskName(cellText(r, i, header)) : cellText(r, i, header)).filter(Boolean).join(' ');
+}
+// 화면에 보이는 글자가 같은데 다른 학생이면 학년 → 학년-반 → 학년-반-번호 순으로 짧은 구분 꼬리표를 만든다
+function homonymTags(rows, show, header) {
+  const byLabel = new Map();
+  rows.forEach(r => {
+    const lb = baseLabel(r, show, header), k = rowKey(r);
+    if (!byLabel.has(lb)) byLabel.set(lb, new Map());
+    byLabel.get(lb).set(k, r);
+  });
+  const find = re => header.findIndex(h => re.test(norm(h)));
+  const gi = find(/학년/), ci = find(/^반$|반$/), ni = find(/번호|^번$/);
+  const levels = [[gi], [gi, ci], [gi, ci, ni]].map(l => l.filter(i => i >= 0 && !show.includes(i))).filter(l => l.length);
+  const rest = idCols().filter(i => !show.includes(i));
+  if (rest.length) levels.push(rest);
+  const tags = new Map();
+  byLabel.forEach(people => {
+    if (people.size < 2) return;
+    const list = [...people.entries()];
+    for (const cols of levels) {
+      const t = list.map(([, r]) => cols.map(i => { const v = norm(r[i]); return (v.match(/\d+/) || [v])[0]; }).join('-'));
+      if (new Set(t).size === t.length || cols === levels[levels.length - 1]) { list.forEach(([k], j) => tags.set(k, t[j])); break; }
+    }
+  });
+  return tags;
+}
 function displayName(r, masked) {
   const R = state.result, nc = R.nameCol === '' ? -1 : +R.nameCol;
-  const unit = { '반': '반', '번호': '번', '번': '번' };
-  const s = R.show.map(i => {
-    let v = norm(r[i]);
-    const u = unit[norm(R.header[i])];
-    if (u && /^\d+$/.test(v)) v += u; // 3 → 3반, 16 → 16번
-    return masked && i === nc ? maskName(v) : v;
-  }).filter(Boolean).join(' ');
+  const tag = R.tags.get(rowKey(r));
+  const s = baseLabel(r, R.show, R.header, masked ? nc : -1) + (tag ? `(${tag})` : '');
   return s || '(빈 줄)';
 }
 function maskName(s) {
@@ -514,8 +546,8 @@ function downloadCSV() {
 }
 function buildPrint() {
   const R = state.result;
-  const th = `<tr><th>결과</th><th>순번</th>${R.show.map(i => `<th>${esc(R.header[i])}</th>`).join('')}</tr>`;
-  const tds = r => R.show.map(i => `<td>${esc(r[i])}</td>`).join('');
+  const th = `<tr><th>결과</th><th>순번</th>${R.id.map(i => `<th>${esc(R.header[i])}</th>`).join('')}</tr>`;
+  const tds = r => R.id.map(i => `<td>${esc(r[i])}</td>`).join('');
   $('#printArea').innerHTML = `<h1>${esc(R.title)} 결과</h1>
     <p>추첨 일시: ${fmtTime(R.time)} &nbsp;|&nbsp; 공개 추첨 번호: <b>${esc(R.seed)}</b> &nbsp;|&nbsp; 명단 확인값: ${R.fingerprint}</p>` +
     R.groups.map(G => `<h2>${esc(G.g)} (신청 ${G.total}명 / 선정 ${G.win.length}명 / 예비 ${G.wait.length}명)</h2>
